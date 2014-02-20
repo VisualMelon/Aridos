@@ -1279,10 +1279,14 @@ public:
 	void createVBuff(LPDIRECT3DDEVICE9 dxDevice, void* vds);
 	void fillIBuff();
 	void createIBuff(LPDIRECT3DDEVICE9 dxDevice, short* ids);
+public:
 	bool collides(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
+private:
 	bool collidesVX_PC(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
+public:
 	bool collidesVX_PCT(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
 	int collidesVertex(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
+private:
 	int collidesVertexVX_PC(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
 	int collidesVertexVX_PCT(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes);
 };
@@ -4820,6 +4824,12 @@ public:
 const DWORD MD_access = 0x00000001;
 
 // TODO : beat this into shape
+
+struct UNCRZ_terrain_block
+{
+	
+};
+
 // PTW4 etc. terrain
 struct UNCRZ_terrain
 {
@@ -4862,13 +4872,72 @@ struct UNCRZ_terrain
 	int height;
 	float dimension;
 
+	UNCRZ_bbox bbox;
+	int vertexOffset;
+
 	UNCRZ_terrain()
 	{
+		vertexOffset = 0;
 	}
 
 	UNCRZ_terrain(std::string nameN)
 	{
+		vertexOffset = 0;
 		name = nameN;
+	}
+
+	UNCRZ_terrain(std::string nameN, int wN, int hN)
+	{
+		vertexOffset = 0;
+		name = nameN;
+		width = wN;
+		height = hN;
+	}
+
+	void buildIndexArray(LPDIRECT3DDEVICE9 dxDevice)
+	{
+		std::vector<short> indices;
+		
+		for (int i = 0; i < height - 1; i++)
+		{
+			for (int j = 0; j < width - 1; j++)
+			{
+				indices.push_back(vertexOffset + i * width + j);
+				indices.push_back(vertexOffset + (i + 1) * width + j);
+				indices.push_back(vertexOffset + (i + 1) * width + j + 1);
+				
+				indices.push_back(vertexOffset + i * width + j);
+				indices.push_back(vertexOffset + (i + 1) * width + j + 1);
+				indices.push_back(vertexOffset + i * width + j + 1);
+			}
+		}
+
+		numIndices = indices.size();
+		createIBuff(dxDevice, (short*)&indices.front());
+	}
+
+	void loadVerts_PTW4(LPDIRECT3DDEVICE9 dxDevice, std::vector<vertexPTW4>* vPTW4s)
+	{
+		numVertices = vPTW4s->size();
+		createVBuff(dxDevice, (void*)&vPTW4s->front());
+
+		buildIndexArray(dxDevice);
+	}
+
+	// pretty well just builds the BBox for now
+	void update()
+	{
+		bbox = UNCRZ_bbox();
+		
+		for (int i = 0; i < numVertices; i++)
+		{
+			bbox.include(((vertexPTW4*)vertexArray)[i].quickPos());
+		}
+
+		bbox.fillVectors();
+		
+		fillVBuff();
+		fillIBuff();
 	}
 
 	void destroy()
@@ -5193,8 +5262,6 @@ skipToDynamicDecals:
 
 		vertexArray = malloc(stride * numVertices);
 		memcpy(vertexArray, vds, numVertices * stride);
-
-		fillVBuff();
 	}
 
 	void fillIBuff()
@@ -5211,11 +5278,9 @@ skipToDynamicDecals:
 
 		indexArray = (short*)malloc(sizeof (short) * numIndices);
 		memcpy(indexArray, ids, numIndices * sizeof (short));
-
-		fillIBuff();
 	}
 
-	// just modifies the y prop, autoGenNormals and fillVBuff should be done externally
+	// just modifies the y prop, autoGenNormals, fillVBuff, and update should be done externally
 	void level(int sx, int sz, int ex, int ez, float height, float coof)
 	{
 		for (int i = sx; i <= ex; i++)
@@ -5231,6 +5296,10 @@ skipToDynamicDecals:
 
 	bool collidesVert(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
 	{
+		// bbox collision
+		if (bbox.collides(rayPos, rayDir) == false)
+			return false;
+
 		if (vertexType == VX_PTW4)
 		{
 			return collidesVertVX_PTW4(rayPos, rayDir, distRes);
@@ -5238,6 +5307,7 @@ skipToDynamicDecals:
 		return false;
 	}
 
+private:
 	bool collidesVertVX_PTW4(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
 	{
 		float widthmo = width - 1; // this makes sense, don't doubt it
@@ -5300,6 +5370,7 @@ skipToDynamicDecals:
 		return false;
 	}
 
+public:
 	int collidesVertex(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
 	{
 		if (vertexType == VX_PTW4)
@@ -5312,6 +5383,10 @@ skipToDynamicDecals:
 
 	bool collides(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
 	{
+		// bbox collision
+		if (bbox.collides(rayPos, rayDir) == false)
+			return false;
+
 		if (vertexType == VX_PTW4)
 		{
 			return collidesVX_PTW4(rayPos, rayDir, distRes);
@@ -5320,6 +5395,7 @@ skipToDynamicDecals:
 		return false;
 	}
 
+private:
 	int collidesVertexVX_PTW4(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
 	{
 		float uRes, vRes;
@@ -9921,6 +9997,7 @@ void attachDynamicDecal(LPDIRECT3DDEVICE9, UNCRZ_obj* o);
 void initObjs(LPDIRECT3DDEVICE9);
 void initSprites(LPDIRECT3DDEVICE9);
 void initTerrain(LPDIRECT3DDEVICE9);
+void rndTerrain(LPDIRECT3DDEVICE9);
 void initFont(LPDIRECT3DDEVICE9);
 void initUi(LPDIRECT3DDEVICE9);
 void initTextures(LPDIRECT3DDEVICE9);
@@ -10687,6 +10764,12 @@ void handleUiAfter(uiEvent* uie)
 				rayDir.y /= rayDirMod;
 				rayDir.z /= rayDirMod;
 
+				if (terrain->collides(&rayPos, &rayDir, &distRes))
+				{
+					D3DXVECTOR3 hitPos = rayPos + rayDir * distRes;
+					camPos = hitPos; camPos.y += 10;
+				}
+
 				taped = getTapedObj(&rayPos, &rayDir, &distRes);
 			}
 		}
@@ -10880,9 +10963,6 @@ void eval()
 	int winWidth = crect.right - crect.left;
 	int winHeight = crect.bottom - crect.top;
 
-	// get normaled vecs
-	camPos = D3DXVECTOR3(0.0f, 1.0f, 0.0f);
-
 	D3DXMATRIX mehMatrix;
 	D3DXVECTOR3 dirVec = D3DXVECTOR3(20.0f, 0.0f, 0.0f);
 	D3DXMatrixRotationZ(&mehMatrix, rotPar);
@@ -10890,7 +10970,6 @@ void eval()
 	D3DXMatrixRotationY(&mehMatrix, rotY);
 	D3DXVec3TransformNormal(&dirVec, &dirVec, &mehMatrix);
 
-	camPos -= dirVec;
 	D3DXVECTOR3 targVec = camPos + dirVec;
 
 	views[0]->dimY = (float)winWidth / (float)winHeight;
@@ -11593,6 +11672,7 @@ void runAnims()
 
 void initObjs(LPDIRECT3DDEVICE9 dxDevice)
 {
+	cloudObj = new UNCRZ_obj(getModel(&models, "clouds"));
 }
 
 void initSprites(LPDIRECT3DDEVICE9 dxDevice)
@@ -11605,7 +11685,8 @@ void initSprites(LPDIRECT3DDEVICE9 dxDevice)
 
 void initTerrain(LPDIRECT3DDEVICE9 dxDevice)
 {
-	terrain = new UNCRZ_terrain("main_terrain");
+	rndTerrain(dxDevice);
+	terrain->update();
 }
 
 void disableClip(LPDIRECT3DDEVICE9);
@@ -12600,37 +12681,37 @@ void initLights(LPDIRECT3DDEVICE9 dxDevice)
 {
 	lightData* ld;
 
-	ld = new lightData("pointlight");
-
-	ld->lightEnabled = true;
-	ld->lightType = LT_point;
-	ld->lightDepth = 100;
-	ld->lightDir = D3DXVECTOR4(0, 0, 1, 0.0); // not used
-	ld->lightPos = D3DXVECTOR4(0, 50, 0, 0.0);
-	ld->lightUp = D3DXVECTOR3(1, 0, 0); // not used
-	ld->lightAmbient = D3DXVECTOR4(0, 0, 0, 0);
-	ld->lightColMod = D3DXVECTOR4(1.0, 1.0, 1.0, 1);
-	ld->useLightMap = false;
-
-	lights.push_back(ld);
-
-
-	//ld = new lightData("sun");
+	//ld = new lightData("pointlight");
 
 	//ld->lightEnabled = true;
-	//ld->lightType = LT_ortho;
-	//ld->dimX = 50;
-	//ld->dimY = 50;
-	//ld->lightDepth = 80;
-	//ld->lightDir = D3DXVECTOR4(0, -0.9, 0.1, 0.0);
-	//ld->lightPos = D3DXVECTOR4(0, 0, 0, 0.0) - ld->lightDir * 40;
-	//ld->lightUp = D3DXVECTOR3(1, 0, 0);
+	//ld->lightType = LT_point;
+	//ld->lightDepth = 100;
+	//ld->lightDir = D3DXVECTOR4(0, 0, 1, 0.0); // not used
+	//ld->lightPos = D3DXVECTOR4(0, 50, 0, 0.0);
+	//ld->lightUp = D3DXVECTOR3(1, 0, 0); // not used
 	//ld->lightAmbient = D3DXVECTOR4(0, 0, 0, 0);
-	//ld->lightColMod = D3DXVECTOR4(1, 1, 1, 1);
-	//ld->init(dxDevice, vpWidth * lightTexScale, vpHeight * lightTexScale, "lightPattern.tga", &textures); // MAXIMUM SIZE
-	//ld->useLightMap = true;
+	//ld->lightColMod = D3DXVECTOR4(1.0, 1.0, 1.0, 1);
+	//ld->useLightMap = false;
 
 	//lights.push_back(ld);
+
+
+	ld = new lightData("sun");
+
+	ld->lightEnabled = true;
+	ld->lightType = LT_ortho;
+	ld->dimX = 100;
+	ld->dimY = 100;
+	ld->lightDepth = 80;
+	ld->lightDir = D3DXVECTOR4(0, 1, 0, 0.0);
+	ld->lightPos = D3DXVECTOR4(0, 0, 0, 0.0) - ld->lightDir * 40;
+	ld->lightUp = D3DXVECTOR3(1, 0, 0);
+	ld->lightAmbient = D3DXVECTOR4(0, 0, 0, 0);
+	ld->lightColMod = D3DXVECTOR4(1, 1, 1, 1);
+	ld->init(dxDevice, vpWidth * lightTexScale, vpHeight * lightTexScale, "lightPattern.tga", &textures); // MAXIMUM SIZE
+	ld->useLightMap = true;
+
+	lights.push_back(ld);
 
 
 
@@ -12698,6 +12779,83 @@ void initLights(LPDIRECT3DDEVICE9 dxDevice)
 			textures.push_back(tex);
 		}
 	}
+}
+
+void rndTerrain(LPDIRECT3DDEVICE9 dxDevice)
+{
+	float posSpacing = 4;
+	int texSpacing = 4;
+
+	int width = 200;
+	int height = 200;
+	float sx = -(width / 2) * posSpacing;
+	float sz = -(height / 2) * posSpacing;
+	float x, y, z;
+	int u, v;
+	float cos1 = cos(1.0f);
+
+	std::vector<D3DXVECTOR3> hills;
+
+	for (int i = 0; i < width * height / 150; i++)
+	{
+		hills.push_back(D3DXVECTOR3((rnd(width) - width / 2) * posSpacing, ((float)rnd(200) - 80) / 10.0f, (rnd(height) - height / 2) * posSpacing));
+	}
+
+	std::vector<vertexPTW4> vPTW4s;
+
+	for (int i = 0; i < height; i++)
+	{
+		for (int j = 0; j < width; j++)
+		{
+			x = sx + (float)j * posSpacing;
+			z = sz + (float)i * posSpacing;
+			y = -3.0f;
+			u = i * texSpacing;
+			v = j * texSpacing;
+
+			for (int i = hills.size() - 1; i >= 0; i--)
+			{
+				float dist = getDist(hills[i].x, hills[i].z, x, z) * 0.02f;
+				if (dist < 1.0f)
+					y += hills[i].y * (cos(dist) - cos1);
+			}
+
+			if (y < -5.0f)
+				vPTW4s.push_back(vertexPTW4(x, y, z, (float)u, (float)v, 1, 0, 0, 0));
+			else if (y < 0.0f)
+				vPTW4s.push_back(vertexPTW4(x, y, z, (float)u, (float)v, 0, 1, 0, 0));
+			else if (y < 5.0f)
+				vPTW4s.push_back(vertexPTW4(x, y, z, (float)u, (float)v, 0, 0, 1, 0));
+			else
+				vPTW4s.push_back(vertexPTW4(x, y, z, (float)u, (float)v, 0, 0, 0, 1));
+		}
+	}
+
+	terrain = new UNCRZ_terrain("rndTerrain", width, height);
+
+	terrain->stride = sizeof(vertexPTW4);
+	terrain->vertexDec = vertexDecPTW4;
+	terrain->vertexType = VX_PTW4;
+
+	terrain->loadVerts_PTW4(dxDevice, &vPTW4s);
+
+	//terrain->effect = UNCRZ_effect::UNCRZ_effectFromFile("un_shade.fx", dxDevice, VX_PTW4, "terrainEffect");
+	//terrain->effect = createEffect(dxDevice, "un_shade.fx", VX_PTW4, "terrainEffect", &effects);
+	terrain->effect = createEffect(dxDevice, "un_shade.fx", VX_PTW4, "un_shade.fx", &effects);
+
+	terrain->tech = terrain->effect.effect->GetTechniqueByName("terrain");
+	terrain->lightTech = terrain->effect.effect->GetTechniqueByName("terrain_light");
+	terrain->decalTech = terrain->effect.effect->GetTechniqueByName("terrain_decal");
+	terrain->dynamicDecalTech = terrain->effect.effect->GetTechniqueByName("terrain_dynamicdecal");
+	createTexture(dxDevice, "sand.tga", &terrain->tex0, &textures);
+	createTexture(dxDevice, "grass.tga", &terrain->tex1, &textures);
+	createTexture(dxDevice, "rock.tga", &terrain->tex2, &textures);
+	createTexture(dxDevice, "snow.tga", &terrain->tex3, &textures);
+	terrain->useTex = false;
+	terrain->useTex0 = true;
+	terrain->useTex1 = true;
+	terrain->useTex2 = true;
+	terrain->useTex3 = true;
 }
 
 void initOther()
