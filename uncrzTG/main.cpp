@@ -4825,16 +4825,9 @@ const DWORD MD_access = 0x00000001;
 
 // TODO : beat this into shape
 
-struct UNCRZ_terrain_block
-{
-	
-};
-
 // PTW4 etc. terrain
 struct UNCRZ_terrain
 {
-	std::string name;
-
 	UNCRZ_effect effect;
 
 	bool useTex;
@@ -4873,23 +4866,13 @@ struct UNCRZ_terrain
 	float dimension;
 
 	UNCRZ_bbox bbox;
-	int vertexOffset;
 
 	UNCRZ_terrain()
 	{
-		vertexOffset = 0;
 	}
 
-	UNCRZ_terrain(std::string nameN)
+	UNCRZ_terrain(int wN, int hN)
 	{
-		vertexOffset = 0;
-		name = nameN;
-	}
-
-	UNCRZ_terrain(std::string nameN, int wN, int hN)
-	{
-		vertexOffset = 0;
-		name = nameN;
 		width = wN;
 		height = hN;
 	}
@@ -4902,13 +4885,13 @@ struct UNCRZ_terrain
 		{
 			for (int j = 0; j < width - 1; j++)
 			{
-				indices.push_back(vertexOffset + i * width + j);
-				indices.push_back(vertexOffset + (i + 1) * width + j);
-				indices.push_back(vertexOffset + (i + 1) * width + j + 1);
+				indices.push_back(i * width + j);
+				indices.push_back((i + 1) * width + j);
+				indices.push_back((i + 1) * width + j + 1);
 				
-				indices.push_back(vertexOffset + i * width + j);
-				indices.push_back(vertexOffset + (i + 1) * width + j + 1);
-				indices.push_back(vertexOffset + i * width + j + 1);
+				indices.push_back(i * width + j);
+				indices.push_back((i + 1) * width + j + 1);
+				indices.push_back(i * width + j + 1);
 			}
 		}
 
@@ -5501,6 +5484,117 @@ private:
 		}
 		return false;
 	}
+};
+
+struct UNCRZ_terrain_set
+{
+	std::string name;
+
+	int width;
+	int height;
+
+	std::vector<UNCRZ_terrain*> blocks;
+
+	UNCRZ_terrain_set()
+	{
+	}
+
+	UNCRZ_terrain_set(std::string nameN)
+	{
+		name = nameN;
+	}
+
+	UNCRZ_terrain_set(std::string nameN, int wN, int hN)
+	{
+		width = wN;
+		height = hN;
+	}
+
+	void assemble_PTW4(LPDIRECT3DDEVICE9 dxDevice, std::vector<vertexPTW4>* vPTW4s, LPDIRECT3DVERTEXDECLARATION9 vertexDecN)
+	{
+		std::vector<vertexPTW4> bvs;
+
+		// n*n blocks
+		int n = 50;
+
+		for (int i = 0; i < width; i += n)
+		{
+			int bw = width - i;
+			if (bw > n)
+				bw = n;
+
+			for (int j = 0; j < height; j += n)
+			{
+				int bh = height - j;
+				if (bh > n)
+					bh = n;
+
+				UNCRZ_terrain* tb = new UNCRZ_terrain(bw, bh);
+				blocks.push_back(tb);
+
+				for (int y = j; y < j + bh; y++)
+				{
+					for (int x = i; x < i + bw; x++)
+					{
+						bvs.push_back(vPTW4s->at(y * width + x));
+					}
+				}
+
+				tb->loadVerts_PTW4(dxDevice, &bvs);
+				bvs.clear();
+			}
+		}
+	}
+
+	void update()
+	{
+		for each (UNCRZ_terrain* tb in blocks)
+		{
+			tb->update();
+		}
+	}
+
+	void destroy()
+	{
+		for each (UNCRZ_terrain* tb in blocks)
+		{
+			tb->destroy();
+		}
+	}
+
+	void draw(LPDIRECT3DDEVICE9 dxDevice, drawData* ddat, DWORD drawArgs)
+	{
+		for each (UNCRZ_terrain* tb in blocks)
+		{
+			if (tb->bbox.dothSurviveClipTransformed(ddat->viewProj))
+				tb->draw(dxDevice, ddat, drawArgs);
+		}
+	}
+
+	bool collides(D3DXVECTOR3* rayPos, D3DXVECTOR3* rayDir, float* distRes)
+	{
+		bool victory = false;
+		float temp;
+
+		for each (UNCRZ_terrain* tb in blocks)
+		{
+			if (tb->collides(rayPos, rayDir, &temp))
+			{
+				if (!victory)
+				{
+					victory = true;
+					*distRes = temp;
+				}
+				else if (temp < *distRes)
+				{
+					*distRes = temp;
+				}
+			}
+		}
+
+		return victory;
+	}
+
 };
 
 // flat rendered terrain
@@ -12831,7 +12925,7 @@ void rndTerrain(LPDIRECT3DDEVICE9 dxDevice)
 		}
 	}
 
-	terrain = new UNCRZ_terrain("rndTerrain", width, height);
+	terrain = new UNCRZ_terrain(width, height);
 
 	terrain->stride = sizeof(vertexPTW4);
 	terrain->vertexDec = vertexDecPTW4;
